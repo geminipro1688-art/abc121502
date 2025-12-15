@@ -1,0 +1,174 @@
+import streamlit as st
+import pandas as pd
+from docx import Document
+from docx.shared import Cm, Pt
+from docx.oxml.ns import qn
+from docx.enum.table import WD_ROW_HEIGHT_RULE
+from io import BytesIO
+
+# --- 設定頁面資訊 ---
+st.set_page_config(
+    page_title="生日賀卡標籤生成器",
+    page_icon="🏷️",
+    layout="centered"
+)
+
+# --- 輔助函式 ---
+
+def get_hualien_zip_code(address):
+    """
+    依據操作手冊邏輯，判定花蓮縣各鄉鎮郵遞區號。
+    來源: PDF Source [246]
+    """
+    zip_map = {
+        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972",
+        "吉安鄉": "973", "壽豐鄉": "974", "鳳林鎮": "975",
+        "光復鄉": "976", "豐濱鄉": "977", "瑞穗鄉": "978",
+        "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982",
+        "富里鄉": "983"
+    }
+    
+    # 確保地址是字串，避免錯誤
+    if not isinstance(address, str):
+        return "   "
+
+    for town, code in zip_map.items():
+        if town in address:
+            return code
+    return "   "
+
+def set_font(run, size=12, bold=False):
+    """設定字型為標楷體 (中文) 與 Times New Roman (西文)"""
+    run.font.name = 'Times New Roman'
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
+    run.font.size = Pt(size)
+    run.font.bold = bold
+
+def generate_word_doc(df):
+    """
+    生成 Word 文件的核心邏輯
+    回傳: BytesIO 物件 (在記憶體中的檔案)
+    """
+    doc = Document()
+    
+    # 設定版面: A4 大小，邊界全為 0 [Source: 76, 88]
+    section = doc.sections[0]
+    section.page_height = Cm(29.7)
+    section.page_width = Cm(21.0)
+    section.top_margin = Cm(0)
+    section.bottom_margin = Cm(0)
+    section.left_margin = Cm(0)
+    section.right_margin = Cm(0)
+
+    # 建立表格 (2欄 x N列)
+    total_items = len(df)
+    rows_needed = (total_items + 1) // 2 
+    table = doc.add_table(rows=rows_needed, cols=2)
+    
+    for index, row_data in df.iterrows():
+        r = index // 2
+        c = index % 2
+        
+        # 取得資料並轉為字串，處理空值
+        name = str(row_data.get('姓名', '')).strip()
+        address = str(row_data.get('通訊地址', '')).strip()
+        
+        if name == 'nan': name = ''
+        if address == 'nan': address = ''
+        
+        zip_code = get_hualien_zip_code(address)
+        
+        # 地址拆分邏輯 [Source: 243]
+        if len(address) > 6:
+            township = address[:6]
+            detail_addr = address[6:]
+        else:
+            township = address
+            detail_addr = ""
+
+        cell = table.rows[r].cells[c]
+        cell.width = Cm(10.5) # [Source: 108]
+        
+        # 固定列高 [Source: 104]
+        table.rows[r].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        table.rows[r].height = Cm(2.97) 
+
+        cell.vertical_alignment = 1 # 垂直置中
+        cell._element.clear_content() # 清除預設段落
+        
+        p = cell.add_paragraph()
+        p.paragraph_format.left_indent = Cm(0.5) # 左縮排
+        p.paragraph_format.space_before = Pt(10) # 上方間距
+        
+        # 第一行：郵遞區號 + 鄉鎮
+        run1 = p.add_run(f"{zip_code} {township}\n")
+        set_font(run1)
+        
+        # 第二行：詳細地址
+        run2 = p.add_run(f"{detail_addr}\n")
+        set_font(run2)
+        
+        # 第三行：姓名 + 稱謂 [Source: 332]
+        # 這裡可以加入簡單判斷，若欄位沒資料就不印「收」
+        if name:
+            run3 = p.add_run(f"{name} 先生/女士 收") 
+            set_font(run3, size=14, bold=True)
+
+    # 將檔案存入記憶體 Buffer
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- Streamlit UI 介面 ---
+
+st.title("🏷️ 生日賀卡標籤生成器")
+st.markdown("""
+本工具可將 Excel 通訊錄轉換為 **3M 21320 (A4 2欄 x 10列)** 格式的 Word 標籤檔。
+請上傳您的 Excel 檔案進行轉換。
+""")
+
+st.info("💡 **提示**：Excel 檔案必須包含 **「姓名」** 與 **「通訊地址」** 這兩個欄位標題。")
+
+# 1. 檔案上傳區
+uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
+
+if uploaded_file is not None:
+    try:
+        # 讀取 Excel
+        df = pd.read_excel(uploaded_file, dtype=str)
+        
+        # 檢查欄位
+        required_cols = {'姓名', '通訊地址'}
+        if not required_cols.issubset(df.columns):
+            st.error(f"錯誤：Excel 缺少必要欄位！請確認檔案中包含：{required_cols}")
+            st.stop()
+            
+        # 顯示前 5 筆資料預覽
+        st.subheader("📋 資料預覽 (前 5 筆)")
+        st.dataframe(df[['姓名', '通訊地址']].head())
+        st.write(f"共讀取到 {len(df)} 筆資料")
+
+        # 2. 生成按鈕
+        if st.button("🚀 開始生成標籤", type="primary"):
+            with st.spinner('正在排版並生成 Word 檔...'):
+                docx_buffer = generate_word_doc(df)
+                
+                st.success("✅ 標籤生成成功！請點擊下方按鈕下載。")
+                
+                # 3. 下載按鈕
+                st.download_button(
+                    label="📥 下載 Word 標籤檔 (.docx)",
+                    data=docx_buffer,
+                    file_name="生日賀卡標籤.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+                
+                st.warning("⚠️ **列印注意**：列印 PDF 或 Word 時，請務必選擇 **「實際大小 (Actual Size)」** 或縮放比例 **100%**，以免標籤位置跑掉。")
+
+    except Exception as e:
+        st.error(f"發生錯誤：{e}")
+
+# Footer
+st.markdown("---")
+st.caption("Designed for automated label processing.")
