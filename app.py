@@ -99,22 +99,21 @@ def generate_word_doc(df):
     rows_needed = (total_items + 1) // 2 
     
     table = doc.add_table(rows=rows_needed, cols=2)
-    table.style = 'Table Grid' # 保留格線方便查看
     
-    # --- 2. 關鍵修正：強制寬度填滿 ---
-    # 關閉自動調整，強制設定為固定寬度
+    # --- 關鍵修正：移除 table.style = 'Table Grid'，這樣就不會有線了 ---
+    # table.style = 'Table Grid'  <-- 這一行被我刪掉了
+    
+    # --- 強制寬度填滿 ---
     table.autofit = False 
     table.allow_autofit = False
     
-    # 強制設定每一欄的寬度為 10.5cm (A4的一半)
-    # 這會確保表格向右延伸直到紙張邊緣
     for col in table.columns:
         col.width = Cm(10.5)
 
     # 計算每列高度 (3.7cm * 8 = 29.6cm)
     row_height_val = Cm(3.7)
 
-    # --- 3. 填入資料 (保留防錯機制) ---
+    # --- 填入資料 ---
     for i, (index, row_data) in enumerate(df.iterrows()):
         r = i // 2
         c = i % 2
@@ -130,7 +129,7 @@ def generate_word_doc(df):
         # 取得儲存格
         cell = table.rows[r].cells[c]
         
-        # 再次確保儲存格寬度 (雙重保險)
+        # 確保儲存格寬度
         cell.width = Cm(10.5)
         
         # 設定高度
@@ -173,7 +172,7 @@ def generate_word_doc(df):
         run3 = p3.add_run(clean_address)
         set_font(run3, size=12, bold=False)
 
-    # --- 4. 縮小最後游標 ---
+    # --- 縮小最後游標 ---
     try:
         last_paragraph = doc.paragraphs[-1]
         last_paragraph.paragraph_format.space_after = Pt(0)
@@ -192,8 +191,8 @@ def generate_word_doc(df):
 
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
-本工具設定為 **A4 滿版 (2欄 x 8列)**。
-**保證填滿整張紙張寬度 (21cm)，不再留白。**
+本工具設定為 **A4 全寬滿版 (2欄 x 8列)**，且**隱藏格線**。
+保證填滿整張紙張寬度 (21cm)，不再留白。
 """)
 
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
@@ -215,14 +214,14 @@ if uploaded_file is not None:
             
         st.success(f"✅ 讀取成功！共 {len(df)} 筆資料")
         
-        if st.button("🚀 生成標籤 (全寬滿版)", type="primary"):
+        if st.button("🚀 生成標籤 (無格線滿版)", type="primary"):
             with st.spinner('正在生成...'):
                 docx_buffer = generate_word_doc(df)
                 
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="標籤_2x8_全滿版.docx",
+                    file_name="標籤_2x8_無格線.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
