@@ -4,7 +4,7 @@ from docx import Document
 from docx.shared import Cm, Pt
 from docx.oxml.ns import qn
 from docx.enum.table import WD_ROW_HEIGHT_RULE
-from docx.enum.text import WD_LINE_SPACING
+from docx.enum.text import WD_LINE_SPACING, WD_ALIGN_PARAGRAPH
 from io import BytesIO
 import re
 
@@ -98,12 +98,13 @@ def generate_word_doc(df):
     rows_needed = (total_items + 1) // 2 
     
     table = doc.add_table(rows=rows_needed, cols=2)
+    table.style = 'Table Grid' # 加入格線方便檢視，列印時可自行選擇是否隱藏
     
-    # 強制設定表格欄寬，避免 Word 自動調整
+    # 強制設定表格欄寬
     table.autofit = False 
     table.allow_autofit = False
 
-    # 計算每一格的高度 (A4 高度 / 8)
+    # 計算每一格的高度 (A4 高度 29.7 / 8 = 3.7125 cm)
     row_height_val = Cm(29.7 / 8)
 
     for index, row_data in df.iterrows():
@@ -133,9 +134,9 @@ def generate_word_doc(df):
         
         # 1. 姓名行
         p1 = cell.add_paragraph()
-        p1.paragraph_format.left_indent = Cm(0.5) # 左邊稍微留白，避免字貼在切線上
-        p1.paragraph_format.space_before = Pt(2)  # 與上方邊界的距離
-        p1.paragraph_format.space_after = Pt(0)   # 關鍵：段落後不留白
+        p1.paragraph_format.left_indent = Cm(0.5) # 左邊縮排
+        p1.paragraph_format.space_before = Pt(2)  # 與上方邊界的微小距離
+        p1.paragraph_format.space_after = Pt(0)   # 關鍵：段落後不留白，避免撐大表格
         p1.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE # 單行間距
         
         if name:
@@ -154,7 +155,7 @@ def generate_word_doc(df):
         
         # 3. 地址行 (縮排)
         p3 = cell.add_paragraph()
-        p3.paragraph_format.left_indent = Cm(1.3) # 懸掛縮排
+        p3.paragraph_format.left_indent = Cm(1.3) # 懸掛縮排效果
         p3.paragraph_format.space_before = Pt(2)
         p3.paragraph_format.space_after = Pt(0)
         p3.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -172,7 +173,7 @@ def generate_word_doc(df):
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
 本工具設定為 **A4 滿版 (2欄 x 8列)**。
-每張標籤大小均等，無留白，共 16 張/頁。
+**每張標籤大小均等，無留白，共 16 張/頁。**
 """)
 
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
@@ -206,8 +207,7 @@ if uploaded_file is not None:
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
-                st.warning("⚠️ **列印非常重要**：請務必在列印設定中選擇 **「實際大小 (Actual Size)」**，並確認沒有勾選「配合紙張大小」。")
+                st.warning("⚠️ **列印非常重要**：請務必在列印設定中選擇 **「實際大小 (Actual Size)」**，並確認沒有勾選「配合紙張大小」，否則位置會跑掉。")
 
     except Exception as e:
         st.error(f"錯誤：{e}")
-
