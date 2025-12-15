@@ -100,20 +100,22 @@ def generate_word_doc(df):
     
     table = doc.add_table(rows=rows_needed, cols=2)
     
-    # --- 關鍵修正：移除 table.style = 'Table Grid'，這樣就不會有線了 ---
-    # table.style = 'Table Grid'  <-- 這一行被我刪掉了
+    # --- 關鍵修正：移除表格樣式設定 ---
+    # 我把 table.style = 'Table Grid' 這行刪掉了
+    # 這樣生成的表格就不會有黑色框線
     
-    # --- 強制寬度填滿 ---
+    # --- 2. 強制寬度填滿 ---
     table.autofit = False 
     table.allow_autofit = False
     
+    # 強制設定每一欄的寬度為 10.5cm
     for col in table.columns:
         col.width = Cm(10.5)
 
     # 計算每列高度 (3.7cm * 8 = 29.6cm)
     row_height_val = Cm(3.7)
 
-    # --- 填入資料 ---
+    # --- 3. 填入資料 ---
     for i, (index, row_data) in enumerate(df.iterrows()):
         r = i // 2
         c = i % 2
@@ -126,7 +128,6 @@ def generate_word_doc(df):
         
         zip_code, clean_address = process_address(raw_address)
 
-        # 取得儲存格
         cell = table.rows[r].cells[c]
         
         # 確保儲存格寬度
@@ -172,7 +173,7 @@ def generate_word_doc(df):
         run3 = p3.add_run(clean_address)
         set_font(run3, size=12, bold=False)
 
-    # --- 縮小最後游標 ---
+    # --- 4. 縮小最後游標 ---
     try:
         last_paragraph = doc.paragraphs[-1]
         last_paragraph.paragraph_format.space_after = Pt(0)
@@ -191,7 +192,7 @@ def generate_word_doc(df):
 
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
-本工具設定為 **A4 全寬滿版 (2欄 x 8列)**，且**隱藏格線**。
+本工具設定為 **A4 滿版 (2欄 x 8列)**，且 **隱藏格線**。
 保證填滿整張紙張寬度 (21cm)，不再留白。
 """)
 
@@ -214,14 +215,14 @@ if uploaded_file is not None:
             
         st.success(f"✅ 讀取成功！共 {len(df)} 筆資料")
         
-        if st.button("🚀 生成標籤 (無格線滿版)", type="primary"):
+        if st.button("🚀 生成標籤 (無框線滿版)", type="primary"):
             with st.spinner('正在生成...'):
                 docx_buffer = generate_word_doc(df)
                 
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="標籤_2x8_無格線.docx",
+                    file_name="標籤_2x8_無框線.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
