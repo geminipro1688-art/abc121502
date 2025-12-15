@@ -5,6 +5,7 @@ from docx.shared import Cm, Pt
 from docx.oxml.ns import qn
 from docx.enum.table import WD_ROW_HEIGHT_RULE
 from io import BytesIO
+import re
 
 # --- 設定頁面資訊 ---
 st.set_page_config(
@@ -15,27 +16,75 @@ st.set_page_config(
 
 # --- 輔助函式 ---
 
-def get_hualien_zip_code(address):
+def load_excel_with_auto_header(file):
     """
-    依據操作手冊邏輯，判定花蓮縣各鄉鎮郵遞區號。
-    來源: PDF Source [246]
+    自動偵測 Excel 的標題列位置。
+    解決第一列是標題名稱(如: 臺東縣...)而不是欄位名稱的問題。
     """
+    # 1. 先讀取前 10 列來預覽
+    try:
+        df_temp = pd.read_excel(file, header=None, nrows=10, dtype=str)
+    except Exception:
+        # 如果讀取失敗，回傳 None 讓後面處理
+        return None
+    
+    header_idx = -1
+    
+    # 2. 逐列檢查是否包含關鍵欄位
+    for idx, row in df_temp.iterrows():
+        # 將整列轉為字串搜尋
+        row_values = [str(val).strip() for val in row.values]
+        if '姓名' in row_values and '通訊地址' in row_values:
+            header_idx = idx
+            break
+            
+    # 3. 重設檔案指標回到開頭
+    file.seek(0)
+    
+    # 4. 根據找到的索引重新讀取
+    if header_idx != -1:
+        return pd.read_excel(file, header=header_idx, dtype=str)
+    else:
+        # 找不到關鍵字，就嘗試用預設方式讀取
+        return pd.read_excel(file, dtype=str)
+
+def process_address(raw_address):
+    """
+    處理地址邏輯：
+    1. 嘗試從地址中提取郵遞區號 (例如: (950)臺東縣... -> 950, 臺東縣...)
+    2. 如果沒有，則使用關鍵字對照表 (花蓮邏輯)
+    """
+    if not isinstance(raw_address, str):
+        return "   ", ""
+
+    raw_address = raw_address.strip()
+    
+    # 嘗試偵測開頭是否為 (數字) 或 數字
+    # Regex 抓取開頭的 3碼數字，可能包含括號
+    match = re.match(r'^[\(（]?(\d{3})[\)）]?(.*)', raw_address)
+    
+    if match:
+        zip_code = match.group(1)
+        clean_addr = match.group(2).strip()
+        return zip_code, clean_addr
+    
+    # 如果地址本身沒有郵遞區號，則使用舊的對照表邏輯 (備用)
     zip_map = {
         "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972",
         "吉安鄉": "973", "壽豐鄉": "974", "鳳林鎮": "975",
         "光復鄉": "976", "豐濱鄉": "977", "瑞穗鄉": "978",
         "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982",
-        "富里鄉": "983"
+        "富里鄉": "983",
+        "臺東市": "950" # 簡單補一個台東市，避免全空
     }
     
-    # 確保地址是字串，避免錯誤
-    if not isinstance(address, str):
-        return "   "
-
+    found_zip = "   "
     for town, code in zip_map.items():
-        if town in address:
-            return code
-    return "   "
+        if town in raw_address:
+            found_zip = code
+            break
+            
+    return found_zip, raw_address
 
 def set_font(run, size=12, bold=False):
     """設定字型為標楷體 (中文) 與 Times New Roman (西文)"""
@@ -45,13 +94,10 @@ def set_font(run, size=12, bold=False):
     run.font.bold = bold
 
 def generate_word_doc(df):
-    """
-    生成 Word 文件的核心邏輯
-    回傳: BytesIO 物件 (在記憶體中的檔案)
-    """
+    """生成 Word 文件的核心邏輯"""
     doc = Document()
     
-    # 設定版面: A4 大小，邊界全為 0 [Source: 76, 88]
+    # 設定版面: A4 大小，邊界全為 0
     section = doc.sections[0]
     section.page_height = Cm(29.7)
     section.page_width = Cm(21.0)
@@ -69,36 +115,39 @@ def generate_word_doc(df):
         r = index // 2
         c = index % 2
         
-        # 取得資料並轉為字串，處理空值
+        # 取得資料並轉為字串
         name = str(row_data.get('姓名', '')).strip()
-        address = str(row_data.get('通訊地址', '')).strip()
+        raw_address = str(row_data.get('通訊地址', '')).strip()
         
         if name == 'nan': name = ''
-        if address == 'nan': address = ''
+        if raw_address == 'nan': raw_address = ''
         
-        zip_code = get_hualien_zip_code(address)
+        # 處理郵遞區號與地址
+        zip_code, clean_address = process_address(raw_address)
         
-        # 地址拆分邏輯 [Source: 243]
-        if len(address) > 6:
-            township = address[:6]
-            detail_addr = address[6:]
+        # 地址拆分邏輯：拆分 縣市鄉鎮 / 詳細地址
+        # 簡單邏輯：取前 6 個字當鄉鎮 (例如: 臺東縣臺東市)，剩下當詳細地址
+        # 這樣可以避免 (950) 佔用字數導致換行錯誤
+        if len(clean_address) > 6:
+            township = clean_address[:6]
+            detail_addr = clean_address[6:]
         else:
-            township = address
+            township = clean_address
             detail_addr = ""
 
         cell = table.rows[r].cells[c]
-        cell.width = Cm(10.5) # [Source: 108]
+        cell.width = Cm(10.5)
         
-        # 固定列高 [Source: 104]
+        # 固定列高
         table.rows[r].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
         table.rows[r].height = Cm(2.97) 
 
         cell.vertical_alignment = 1 # 垂直置中
-        cell._element.clear_content() # 清除預設段落
+        cell._element.clear_content()
         
         p = cell.add_paragraph()
-        p.paragraph_format.left_indent = Cm(0.5) # 左縮排
-        p.paragraph_format.space_before = Pt(10) # 上方間距
+        p.paragraph_format.left_indent = Cm(0.5)
+        p.paragraph_format.space_before = Pt(10)
         
         # 第一行：郵遞區號 + 鄉鎮
         run1 = p.add_run(f"{zip_code} {township}\n")
@@ -108,8 +157,7 @@ def generate_word_doc(df):
         run2 = p.add_run(f"{detail_addr}\n")
         set_font(run2)
         
-        # 第三行：姓名 + 稱謂 [Source: 332]
-        # 這裡可以加入簡單判斷，若欄位沒資料就不印「收」
+        # 第三行：姓名 + 稱謂
         if name:
             run3 = p.add_run(f"{name} 先生/女士 收") 
             set_font(run3, size=14, bold=True)
@@ -128,20 +176,27 @@ st.markdown("""
 請上傳您的 Excel 檔案進行轉換。
 """)
 
-st.info("💡 **提示**：Excel 檔案必須包含 **「姓名」** 與 **「通訊地址」** 這兩個欄位標題。")
+st.info("💡 **提示**：程式會自動搜尋包含 **「姓名」** 與 **「通訊地址」** 的標題列。")
 
 # 1. 檔案上傳區
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
 
 if uploaded_file is not None:
     try:
-        # 讀取 Excel
-        df = pd.read_excel(uploaded_file, dtype=str)
+        # 使用新的讀取函式 (自動偵測標題)
+        df = load_excel_with_auto_header(uploaded_file)
         
-        # 檢查欄位
+        if df is None:
+            st.error("無法讀取 Excel 檔案，請確認檔案格式。")
+            st.stop()
+        
+        # 檢查欄位是否存在
         required_cols = {'姓名', '通訊地址'}
+        # 清理欄位名稱 (移除空白)
+        df.columns = [str(c).strip() for c in df.columns]
+        
         if not required_cols.issubset(df.columns):
-            st.error(f"錯誤：Excel 缺少必要欄位！請確認檔案中包含：{required_cols}")
+            st.error(f"錯誤：Excel 缺少必要欄位！\n偵測到的欄位：{list(df.columns)}\n請確認檔案中包含：{required_cols}")
             st.stop()
             
         # 顯示前 5 筆資料預覽
