@@ -9,7 +9,7 @@ import re
 
 # --- 設定頁面資訊 ---
 st.set_page_config(
-    page_title="生日賀卡標籤生成器",
+    page_title="生日賀卡標籤生成器 (2x7版)",
     page_icon="🏷️",
     layout="centered"
 )
@@ -19,7 +19,6 @@ st.set_page_config(
 def load_excel_with_auto_header(file):
     """
     自動偵測 Excel 的標題列位置。
-    解決第一列是標題名稱(如: 臺東縣...)而不是欄位名稱的問題。
     """
     try:
         # 先讀取前 10 列來掃描
@@ -32,7 +31,6 @@ def load_excel_with_auto_header(file):
     # 逐列檢查是否包含關鍵欄位
     for idx, row in df_temp.iterrows():
         row_values = [str(val).strip() for val in row.values]
-        # 只要同一列裡面同時有這兩個關鍵字，就認定是標題列
         if '姓名' in row_values and '通訊地址' in row_values:
             header_idx = idx
             break
@@ -46,8 +44,7 @@ def load_excel_with_auto_header(file):
 
 def process_address(raw_address):
     """
-    處理地址邏輯：
-    從地址字串中提取郵遞區號 (例如: (950)臺東縣... -> 950, 臺東縣...)
+    處理地址邏輯：提取郵遞區號並清理地址
     """
     if not isinstance(raw_address, str):
         return "   ", ""
@@ -62,13 +59,15 @@ def process_address(raw_address):
         clean_addr = match.group(2).strip()
         return zip_code, clean_addr
     
-    # 若地址沒寫郵遞區號，嘗試用關鍵字補全 (備用)
+    # 備用：若地址沒寫郵遞區號，嘗試用關鍵字補全
     zip_map = {
-        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972",
-        "吉安鄉": "973", "壽豐鄉": "974", "鳳林鎮": "975",
-        "光復鄉": "976", "豐濱鄉": "977", "瑞穗鄉": "978",
-        "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982",
-        "富里鄉": "983", "臺東市": "950"
+        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972", "吉安鄉": "973", 
+        "壽豐鄉": "974", "鳳林鎮": "975", "光復鄉": "976", "豐濱鄉": "977", 
+        "瑞穗鄉": "978", "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982", 
+        "富里鄉": "983", "臺東市": "950", "卑南鄉": "954", "鹿野鄉": "955",
+        "關山鎮": "956", "海端鄉": "957", "池上鄉": "958", "東河鄉": "959",
+        "成功鎮": "961", "長濱鄉": "962", "太麻里": "963", "金峰鄉": "964",
+        "大武鄉": "965", "達仁鄉": "966"
     }
     
     for town, code in zip_map.items():
@@ -85,23 +84,32 @@ def set_font(run, size=12, bold=False):
     run.font.bold = bold
 
 def generate_word_doc(df):
-    """生成 Word 文件的核心邏輯"""
+    """生成 Word 文件的核心邏輯 (2欄 x 7列)"""
     doc = Document()
     
-    # 設定版面: A4 大小，邊界全為 0 (3M 21320 規格)
+    # 設定版面: A4 大小
     section = doc.sections[0]
     section.page_height = Cm(29.7)
     section.page_width = Cm(21.0)
+    
+    # 為了確保表格能填滿，將邊界設得很小 (例如 0.5cm 或 0)
+    # 這裡設為 0 以便完全控制表格大小
     section.top_margin = Cm(0)
     section.bottom_margin = Cm(0)
-    section.left_margin = Cm(0)
-    section.right_margin = Cm(0)
+    section.left_margin = Cm(0.5)  # 左右留一點點邊，避免印表機切到
+    section.right_margin = Cm(0.5)
 
     # 建立表格 (2欄 x N列)
     total_items = len(df)
     rows_needed = (total_items + 1) // 2 
+    
+    # 表格寬度會自動依照邊界調整
     table = doc.add_table(rows=rows_needed, cols=2)
     
+    # 計算每列高度：A4高度 29.7cm / 7列 = 約 4.24cm
+    # 為了保險起見，設 4.2cm
+    row_height = Cm(4.24) 
+
     for index, row_data in df.iterrows():
         r = index // 2
         c = index % 2
@@ -116,41 +124,37 @@ def generate_word_doc(df):
         # 處理資料
         zip_code, clean_address = process_address(raw_address)
 
-        cell = table.rows[r].cells[c]
-        cell.width = Cm(10.5)
+        row = table.rows[r]
+        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        row.height = row_height # 設定固定高度
         
-        # 固定列高 2.97cm
-        table.rows[r].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-        table.rows[r].height = Cm(2.97) 
+        cell = row.cells[c]
         cell.vertical_alignment = 1 # 垂直置中
         
         # 清除預設段落
         cell._element.clear_content()
         
-        # --- 開始排版 (依照圖片樣式) ---
+        # --- 開始排版 (依照圖片 7列樣式) ---
         
-        # 1. 姓名行: [姓名] 君收
+        # 1. 姓名行: [姓名] 君收 (加大)
         p1 = cell.add_paragraph()
-        p1.paragraph_format.left_indent = Cm(0.5) # 整體左邊界
-        p1.paragraph_format.space_after = Pt(0)   # 段落後不留白
+        p1.paragraph_format.left_indent = Cm(0.2) 
+        p1.paragraph_format.space_after = Pt(2)
         if name:
             run1 = p1.add_run(f"{name} 君收")
-            set_font(run1, size=14, bold=True) # 姓名加大加粗
+            set_font(run1, size=16, bold=True) # 改為 16pt 以符合大字樣式
             
         # 2. 郵遞區號行: 950 ( 950 )
         p2 = cell.add_paragraph()
-        p2.paragraph_format.left_indent = Cm(0.5)
-        p2.paragraph_format.space_after = Pt(0)
-        # 格式：Zip ( Zip )
+        p2.paragraph_format.left_indent = Cm(0.2)
+        p2.paragraph_format.space_after = Pt(2)
         run2 = p2.add_run(f"{zip_code} ( {zip_code} )")
         set_font(run2, size=12, bold=False)
         
-        # 3. 地址行: 縮排顯示
+        # 3. 地址行: 縮排顯示 (與圖片一致)
         p3 = cell.add_paragraph()
-        # 設定懸掛縮排/左縮排，讓地址往右縮進 (對齊圖片樣式)
-        # 0.5 (基本邊界) + 0.8 (額外縮排) = 1.3 cm
-        p3.paragraph_format.left_indent = Cm(1.3) 
-        p3.paragraph_format.space_before = Pt(2) # 與上方稍微留點空隙
+        p3.paragraph_format.left_indent = Cm(1.2) # 地址向右縮排
+        p3.paragraph_format.space_before = Pt(0)
         
         run3 = p3.add_run(clean_address)
         set_font(run3, size=12, bold=False)
@@ -163,10 +167,13 @@ def generate_word_doc(df):
 
 # --- Streamlit UI 介面 ---
 
-st.title("🏷️ 生日賀卡標籤生成器")
+st.title("🏷️ 生日賀卡標籤生成器 (7列版)")
 st.markdown("""
-本工具專為 **3M 21320 (A4 2欄 x 10列)** 格式設計。
-請上傳 Excel 通訊錄，程式將自動排版為標籤樣式。
+本工具專為 **A4 2欄 x 7列 (共14模)** 格式設計。
+樣式特色：
+- 姓名加大加粗
+- 郵遞區號格式：950 ( 950 )
+- 地址自動縮排
 """)
 
 # 1. 檔案上傳區
@@ -191,8 +198,7 @@ if uploaded_file is not None:
             st.stop()
             
         # 顯示預覽
-        st.success("✅ 成功讀取檔案！")
-        st.subheader("📋 資料預覽")
+        st.success(f"✅ 成功讀取檔案！共 {len(df)} 筆資料")
         st.dataframe(df[['姓名', '通訊地址']].head())
         
         # 2. 生成按鈕
@@ -204,7 +210,7 @@ if uploaded_file is not None:
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="生日賀卡標籤.docx",
+                    file_name="生日賀卡標籤_2x7.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
