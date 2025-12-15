@@ -43,35 +43,6 @@ def load_excel_with_auto_header(file):
     else:
         return pd.read_excel(file, dtype=str)
 
-def process_address(raw_address):
-    """處理地址邏輯：提取郵遞區號與地址"""
-    if not isinstance(raw_address, str):
-        return "   ", ""
-
-    raw_address = raw_address.strip()
-    # 抓取開頭的 3碼數字，例如 (950) 或 950
-    match = re.match(r'^[\(（]?(\d{3})[\)）]?(.*)', raw_address)
-    
-    if match:
-        zip_code = match.group(1)
-        clean_addr = match.group(2).strip()
-        return zip_code, clean_addr
-    
-    # 備用對照表
-    zip_map = {
-        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972",
-        "吉安鄉": "973", "壽豐鄉": "974", "鳳林鎮": "975",
-        "光復鄉": "976", "豐濱鄉": "977", "瑞穗鄉": "978",
-        "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982",
-        "富里鄉": "983", "臺東市": "950"
-    }
-    
-    for town, code in zip_map.items():
-        if town in raw_address:
-            return code, raw_address
-            
-    return "   ", raw_address
-
 def set_font(run, size=12, bold=False):
     """設定中西文字型"""
     run.font.name = 'Times New Roman'
@@ -100,9 +71,8 @@ def generate_word_doc(df):
     
     table = doc.add_table(rows=rows_needed, cols=2)
     
-    # --- 關鍵修正：移除表格樣式設定 ---
-    # 我把 table.style = 'Table Grid' 這行刪掉了
-    # 這樣生成的表格就不會有黑色框線
+    # --- 無框線設定 (不套用 Table Grid) ---
+    # table.style = 'Table Grid'  <-- 這一行已移除
     
     # --- 2. 強制寬度填滿 ---
     table.autofit = False 
@@ -126,7 +96,7 @@ def generate_word_doc(df):
         if name == 'nan': name = ''
         if raw_address == 'nan': raw_address = ''
         
-        zip_code, clean_address = process_address(raw_address)
+        # 這裡不需要 process_address 去拆分郵遞區號了，因為我們要直接印 raw_address
 
         cell = table.rows[r].cells[c]
         
@@ -146,32 +116,23 @@ def generate_word_doc(df):
         p1 = cell.add_paragraph()
         p1.paragraph_format.left_indent = Cm(0.5)
         p1.paragraph_format.space_before = Pt(5)
-        p1.paragraph_format.space_after = Pt(0)
+        p1.paragraph_format.space_after = Pt(2) # 稍微留一點空間給地址
         p1.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
         
         if name:
             run1 = p1.add_run(f"{name} 君收")
             set_font(run1, size=14, bold=True)
             
-        # 2. 郵遞區號行
+        # 2. 地址行 (直接使用原始地址，不拆分，不加 950(950) 那一行)
         p2 = cell.add_paragraph()
-        p2.paragraph_format.left_indent = Cm(0.5)
+        p2.paragraph_format.left_indent = Cm(1.3) # 保持縮排，比較美觀
         p2.paragraph_format.space_before = Pt(0)
         p2.paragraph_format.space_after = Pt(0)
         p2.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
         
-        run2 = p2.add_run(f"{zip_code} ( {zip_code} )")
+        # 直接印出 raw_address (也就是 Excel 裡的 (950)臺東縣...)
+        run2 = p2.add_run(raw_address)
         set_font(run2, size=12, bold=False)
-        
-        # 3. 地址行
-        p3 = cell.add_paragraph()
-        p3.paragraph_format.left_indent = Cm(1.3)
-        p3.paragraph_format.space_before = Pt(2)
-        p3.paragraph_format.space_after = Pt(0)
-        p3.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-        
-        run3 = p3.add_run(clean_address)
-        set_font(run3, size=12, bold=False)
 
     # --- 4. 縮小最後游標 ---
     try:
@@ -192,8 +153,8 @@ def generate_word_doc(df):
 
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
-本工具設定為 **A4 滿版 (2欄 x 8列)**，且 **隱藏格線**。
-保證填滿整張紙張寬度 (21cm)，不再留白。
+本工具設定為 **A4 滿版 (2欄 x 8列)**，**無框線**，**移除上方郵遞區號**。
+直接顯示姓名與 Excel 中的完整地址。
 """)
 
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
@@ -215,14 +176,14 @@ if uploaded_file is not None:
             
         st.success(f"✅ 讀取成功！共 {len(df)} 筆資料")
         
-        if st.button("🚀 生成標籤 (無框線滿版)", type="primary"):
+        if st.button("🚀 生成標籤 (最終修正版)", type="primary"):
             with st.spinner('正在生成...'):
                 docx_buffer = generate_word_doc(df)
                 
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="標籤_2x8_無框線.docx",
+                    file_name="標籤_2x8_最終版.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
