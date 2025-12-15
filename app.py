@@ -99,18 +99,22 @@ def generate_word_doc(df):
     rows_needed = (total_items + 1) // 2 
     
     table = doc.add_table(rows=rows_needed, cols=2)
-    table.style = 'Table Grid' # 加入格線
+    table.style = 'Table Grid' # 保留格線方便查看
+    
+    # --- 2. 關鍵修正：強制寬度填滿 ---
+    # 關閉自動調整，強制設定為固定寬度
     table.autofit = False 
     table.allow_autofit = False
+    
+    # 強制設定每一欄的寬度為 10.5cm (A4的一半)
+    # 這會確保表格向右延伸直到紙張邊緣
+    for col in table.columns:
+        col.width = Cm(10.5)
 
-    # --- 2. 關鍵高度計算 ---
-    # 設定每列高度為 3.7 cm
-    # 8列總高 = 29.6 cm (A4為29.7cm)
-    # 預留 0.1cm 給 Word 的隱形邊界，避免第8列被踢到下一頁
+    # 計算每列高度 (3.7cm * 8 = 29.6cm)
     row_height_val = Cm(3.7)
 
-    # --- 3. 關鍵修正：使用 enumerate ---
-    # 解決 "list index out of range" 錯誤
+    # --- 3. 填入資料 (保留防錯機制) ---
     for i, (index, row_data) in enumerate(df.iterrows()):
         r = i // 2
         c = i % 2
@@ -126,8 +130,10 @@ def generate_word_doc(df):
         # 取得儲存格
         cell = table.rows[r].cells[c]
         
-        # 嚴格設定寬度與高度
+        # 再次確保儲存格寬度 (雙重保險)
         cell.width = Cm(10.5)
+        
+        # 設定高度
         table.rows[r].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
         table.rows[r].height = row_height_val
         
@@ -140,7 +146,7 @@ def generate_word_doc(df):
         p1 = cell.add_paragraph()
         p1.paragraph_format.left_indent = Cm(0.5)
         p1.paragraph_format.space_before = Pt(5)
-        p1.paragraph_format.space_after = Pt(0) # 段落後不留白
+        p1.paragraph_format.space_after = Pt(0)
         p1.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
         
         if name:
@@ -167,8 +173,7 @@ def generate_word_doc(df):
         run3 = p3.add_run(clean_address)
         set_font(run3, size=12, bold=False)
 
-    # --- 4. 終極防護：縮小最後一個段落 ---
-    # 把文件最後的 Enter 鍵縮小到 1pt，防止它佔位子導致分頁
+    # --- 4. 縮小最後游標 ---
     try:
         last_paragraph = doc.paragraphs[-1]
         last_paragraph.paragraph_format.space_after = Pt(0)
@@ -188,7 +193,7 @@ def generate_word_doc(df):
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
 本工具設定為 **A4 滿版 (2欄 x 8列)**。
-已修正「錯誤代碼」與「只有7張」的問題，請安心使用。
+**保證填滿整張紙張寬度 (21cm)，不再留白。**
 """)
 
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
@@ -201,31 +206,28 @@ if uploaded_file is not None:
             st.error("❌ 無法讀取 Excel 檔案，請確認格式。")
             st.stop()
         
-        # 清理欄位名稱
         df.columns = [str(c).strip() for c in df.columns]
         
         required_cols = {'姓名', '通訊地址'}
         if not required_cols.issubset(df.columns):
             st.error(f"❌ 缺少必要欄位！需包含：{required_cols}")
-            st.write("偵測到的欄位：", list(df.columns))
             st.stop()
             
         st.success(f"✅ 讀取成功！共 {len(df)} 筆資料")
         
-        if st.button("🚀 生成標籤 (修正版)", type="primary"):
+        if st.button("🚀 生成標籤 (全寬滿版)", type="primary"):
             with st.spinner('正在生成...'):
                 docx_buffer = generate_word_doc(df)
                 
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="標籤_2x8_修正版.docx",
+                    file_name="標籤_2x8_全滿版.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
-                st.info("💡 **列印提示**：請選擇 **「實際大小 (Actual Size)」** 進行列印。")
+                st.info("💡 **列印提示**：請選擇 **「實際大小 (Actual Size)」**。")
 
     except Exception as e:
         st.error(f"程式發生錯誤：{e}")
-        # 顯示詳細錯誤資訊以便除錯 (只有在出錯時顯示)
         st.exception(e)
