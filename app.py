@@ -9,7 +9,7 @@ import re
 
 # --- 設定頁面資訊 ---
 st.set_page_config(
-    page_title="生日賀卡標籤生成器 (2x7版)",
+    page_title="生日賀卡標籤生成器 (2x8版)",
     page_icon="🏷️",
     layout="centered"
 )
@@ -21,14 +21,14 @@ def load_excel_with_auto_header(file):
     自動偵測 Excel 的標題列位置。
     """
     try:
-        # 先讀取前 10 列來掃描
+        # 讀取前 10 列掃描
         df_temp = pd.read_excel(file, header=None, nrows=10, dtype=str)
     except Exception:
         return None
     
     header_idx = -1
     
-    # 逐列檢查是否包含關鍵欄位
+    # 搜尋包含關鍵欄位的列
     for idx, row in df_temp.iterrows():
         row_values = [str(val).strip() for val in row.values]
         if '姓名' in row_values and '通訊地址' in row_values:
@@ -44,14 +44,15 @@ def load_excel_with_auto_header(file):
 
 def process_address(raw_address):
     """
-    處理地址邏輯：提取郵遞區號並清理地址
+    分離郵遞區號與地址。
+    例如: (950)臺東縣... -> 950, 臺東縣...
     """
     if not isinstance(raw_address, str):
         return "   ", ""
 
     raw_address = raw_address.strip()
     
-    # Regex 抓取開頭的 3碼數字，支援 (950) 或 950 格式
+    # 抓取開頭的 (950) 或 950
     match = re.match(r'^[\(（]?(\d{3})[\)）]?(.*)', raw_address)
     
     if match:
@@ -59,15 +60,13 @@ def process_address(raw_address):
         clean_addr = match.group(2).strip()
         return zip_code, clean_addr
     
-    # 備用：若地址沒寫郵遞區號，嘗試用關鍵字補全
+    # 備用：若無數字則查表
     zip_map = {
-        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972", "吉安鄉": "973", 
-        "壽豐鄉": "974", "鳳林鎮": "975", "光復鄉": "976", "豐濱鄉": "977", 
-        "瑞穗鄉": "978", "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982", 
-        "富里鄉": "983", "臺東市": "950", "卑南鄉": "954", "鹿野鄉": "955",
-        "關山鎮": "956", "海端鄉": "957", "池上鄉": "958", "東河鄉": "959",
-        "成功鎮": "961", "長濱鄉": "962", "太麻里": "963", "金峰鄉": "964",
-        "大武鄉": "965", "達仁鄉": "966"
+        "花蓮市": "970", "新城鄉": "971", "秀林鄉": "972",
+        "吉安鄉": "973", "壽豐鄉": "974", "鳳林鎮": "975",
+        "光復鄉": "976", "豐濱鄉": "977", "瑞穗鄉": "978",
+        "萬榮鄉": "979", "玉里鎮": "981", "卓溪鄉": "982",
+        "富里鄉": "983", "臺東市": "950"
     }
     
     for town, code in zip_map.items():
@@ -84,32 +83,26 @@ def set_font(run, size=12, bold=False):
     run.font.bold = bold
 
 def generate_word_doc(df):
-    """生成 Word 文件的核心邏輯 (2欄 x 7列)"""
+    """生成 Word (2欄 x 8列)"""
     doc = Document()
     
-    # 設定版面: A4 大小
+    # 設定 A4 版面，邊界歸零
     section = doc.sections[0]
     section.page_height = Cm(29.7)
     section.page_width = Cm(21.0)
-    
-    # 為了確保表格能填滿，將邊界設得很小 (例如 0.5cm 或 0)
-    # 這裡設為 0 以便完全控制表格大小
     section.top_margin = Cm(0)
     section.bottom_margin = Cm(0)
-    section.left_margin = Cm(0.5)  # 左右留一點點邊，避免印表機切到
-    section.right_margin = Cm(0.5)
+    section.left_margin = Cm(0)
+    section.right_margin = Cm(0)
 
     # 建立表格 (2欄 x N列)
     total_items = len(df)
     rows_needed = (total_items + 1) // 2 
-    
-    # 表格寬度會自動依照邊界調整
     table = doc.add_table(rows=rows_needed, cols=2)
     
-    # 計算每列高度：A4高度 29.7cm / 7列 = 約 4.24cm
-    # 為了保險起見，設 4.2cm
-    row_height = Cm(4.24) 
-
+    # 計算每一格的高度：A4高度 29.7 / 8列 = 3.7125 cm
+    row_height = 29.7 / 8 
+    
     for index, row_data in df.iterrows():
         r = index // 2
         c = index % 2
@@ -121,39 +114,38 @@ def generate_word_doc(df):
         if name == 'nan': name = ''
         if raw_address == 'nan': raw_address = ''
         
-        # 處理資料
         zip_code, clean_address = process_address(raw_address)
 
-        row = table.rows[r]
-        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-        row.height = row_height # 設定固定高度
+        cell = table.rows[r].cells[c]
+        cell.width = Cm(10.5) # 寬度固定
         
-        cell = row.cells[c]
+        # 設定列高 (一邊 8 個)
+        table.rows[r].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        table.rows[r].height = Cm(row_height) 
+        
         cell.vertical_alignment = 1 # 垂直置中
-        
-        # 清除預設段落
         cell._element.clear_content()
         
-        # --- 開始排版 (依照圖片 7列樣式) ---
+        # --- 排版開始 ---
         
-        # 1. 姓名行: [姓名] 君收 (加大)
+        # 1. 姓名: [姓名] 君收 (靠左)
         p1 = cell.add_paragraph()
-        p1.paragraph_format.left_indent = Cm(0.2) 
+        p1.paragraph_format.left_indent = Cm(0.5)
         p1.paragraph_format.space_after = Pt(2)
         if name:
             run1 = p1.add_run(f"{name} 君收")
-            set_font(run1, size=16, bold=True) # 改為 16pt 以符合大字樣式
+            set_font(run1, size=14, bold=True)
             
-        # 2. 郵遞區號行: 950 ( 950 )
+        # 2. 郵遞區號: 950 ( 950 ) (靠左)
         p2 = cell.add_paragraph()
-        p2.paragraph_format.left_indent = Cm(0.2)
+        p2.paragraph_format.left_indent = Cm(0.5)
         p2.paragraph_format.space_after = Pt(2)
         run2 = p2.add_run(f"{zip_code} ( {zip_code} )")
         set_font(run2, size=12, bold=False)
         
-        # 3. 地址行: 縮排顯示 (與圖片一致)
+        # 3. 地址: 向右縮排 1.5cm (階梯狀)
         p3 = cell.add_paragraph()
-        p3.paragraph_format.left_indent = Cm(1.2) # 地址向右縮排
+        p3.paragraph_format.left_indent = Cm(1.5) # 縮排對齊 (950) 的括號處
         p3.paragraph_format.space_before = Pt(0)
         
         run3 = p3.add_run(clean_address)
@@ -165,56 +157,47 @@ def generate_word_doc(df):
     buffer.seek(0)
     return buffer
 
-# --- Streamlit UI 介面 ---
+# --- Streamlit UI ---
 
-st.title("🏷️ 生日賀卡標籤生成器 (7列版)")
+st.title("🏷️ 生日賀卡標籤生成器 (2x8)")
 st.markdown("""
-本工具專為 **A4 2欄 x 7列 (共14模)** 格式設計。
-樣式特色：
-- 姓名加大加粗
-- 郵遞區號格式：950 ( 950 )
-- 地址自動縮排
+本工具專為 **A4 2欄 x 8列 (每頁16張)** 格式設計。
+樣式：姓名加粗、郵遞區號重複顯示、地址縮排。
 """)
 
-# 1. 檔案上傳區
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
 
 if uploaded_file is not None:
     try:
-        # 使用自動標題偵測功能
+        # 自動偵測標題
         df = load_excel_with_auto_header(uploaded_file)
         
         if df is None:
             st.error("❌ 無法讀取 Excel 檔案，請確認格式。")
             st.stop()
         
-        # 清理欄位名稱
         df.columns = [str(c).strip() for c in df.columns]
         
-        # 檢查必要欄位
         required_cols = {'姓名', '通訊地址'}
         if not required_cols.issubset(df.columns):
-            st.error(f"❌ 錯誤：找不到必要欄位！\n程式偵測到的欄位有：{list(df.columns)}\n請確認 Excel 中包含：{required_cols}")
+            st.error(f"❌ 缺少欄位！偵測到：{list(df.columns)}")
             st.stop()
             
-        # 顯示預覽
-        st.success(f"✅ 成功讀取檔案！共 {len(df)} 筆資料")
-        st.dataframe(df[['姓名', '通訊地址']].head())
+        st.success(f"✅ 成功讀取 {len(df)} 筆資料")
+        st.dataframe(df[['姓名', '通訊地址']].head(3))
         
-        # 2. 生成按鈕
         if st.button("🚀 開始生成標籤", type="primary"):
-            with st.spinner('正在生成 Word 檔...'):
+            with st.spinner('正在生成 2x8 格式 Word 檔...'):
                 docx_buffer = generate_word_doc(df)
                 
-                # 3. 下載按鈕
                 st.download_button(
                     label="📥 下載 Word 標籤檔 (.docx)",
                     data=docx_buffer,
-                    file_name="生日賀卡標籤_2x7.docx",
+                    file_name="生日賀卡標籤_2x8.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
-                st.info("💡 **列印提示**：請使用 Word 開啟，列印時選擇 **「實際大小」** 或 **縮放比例 100%**。")
+                st.info("💡 **列印提示**：請選用 **2x8 (16格)** 的標籤紙，並設定 **實際大小 (100%)** 列印。")
 
     except Exception as e:
-        st.error(f"程式發生錯誤：{e}")
+        st.error(f"錯誤：{e}")
