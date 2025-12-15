@@ -107,9 +107,11 @@ def generate_word_doc(df):
     # 3.7 * 8 = 29.6 cm，剩下 0.1 cm 作為緩衝，這能解決「變成7張」的問題
     row_height_val = Cm(3.7) 
 
-    for index, row_data in df.iterrows():
-        r = index // 2
-        c = index % 2
+    # --- 修正：使用 enumerate 避免 index 錯誤 ---
+    # 這能解決 "list index out of range"
+    for i, (index, row_data) in enumerate(df.iterrows()):
+        r = i // 2
+        c = i % 2
         
         name = str(row_data.get('姓名', '')).strip()
         raw_address = str(row_data.get('通訊地址', '')).strip()
@@ -182,7 +184,7 @@ def generate_word_doc(df):
 st.title("🏷️ 生日賀卡標籤生成器")
 st.markdown("""
 本工具設定為 **A4 滿版 (2欄 x 8列)**。
-修正了「只有7張」的問題，現在應能剛好填滿一頁 16 張。
+修正了「只有7張」與「程式錯誤」的問題，現在應能剛好填滿一頁 16 張。
 """)
 
 uploaded_file = st.file_uploader("上傳 Excel 檔案 (.xlsx)", type=['xlsx'])
